@@ -1,0 +1,1 @@
+# INTERNSHIP-WITH-G.S-Co.-Ltd
