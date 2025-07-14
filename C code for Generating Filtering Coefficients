@@ -1,0 +1,195 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <math.h>
+#include <string.h>
+
+#define MAX_SAMPLES 10000
+#define FIR_ORDER 10
+#define ADC_MAX 2147483648.0
+#define ZERO_CAL -0.0006981067708
+#define SCALE_CAL 0.00000452466566
+#define PI 3.141592653589793
+#define FS 50.0
+
+int32_t raw_adc[MAX_SAMPLES];
+double norm_data_in[MAX_SAMPLES];
+double weights[MAX_SAMPLES];
+int num_samples = 0;
+
+void read_and_process_adc(const char *filename) {
+    FILE *fp = fopen(filename, "r");
+    FILE *norm_fp = fopen("normalized.txt", "w");
+    FILE *weight_fp = fopen("weights.txt", "w");
+    if (!fp || !norm_fp || !weight_fp) {
+        perror("File open error");
+        exit(EXIT_FAILURE);
+    }
+    while (fscanf(fp, "%d", &raw_adc[num_samples]) == 1 && num_samples < MAX_SAMPLES) {
+        norm_data_in[num_samples] = (double)raw_adc[num_samples] / ADC_MAX;
+        weights[num_samples] = (norm_data_in[num_samples] - ZERO_CAL) / SCALE_CAL;
+        fprintf(norm_fp, "%.10f\n", norm_data_in[num_samples]);
+        fprintf(weight_fp, "%.10f\n", weights[num_samples]);
+        num_samples++;
+    }
+    fclose(fp);
+    fclose(norm_fp);
+    fclose(weight_fp);
+}
+
+void moving_average(int window_size, const char *output_file) {
+    FILE *fp = fopen(output_file, "w");
+    if (!fp) {
+        perror("Output file error");
+        exit(EXIT_FAILURE);
+    }
+    for (int i = 0; i < num_samples; i++) {
+        double sum = 0.0;
+        int count = 0;
+        for (int j = i - window_size + 1; j <= i; j++) {
+            if (j >= 0) {
+                sum += norm_data_in[j];
+                count++;
+            }
+        }
+        fprintf(fp, "%.6f\n", sum / count);
+    }
+    fclose(fp);
+}
+
+double compute_cutoff_from_fft(const double *data, int n, double fs) {
+    double *fft_mag = malloc(n * sizeof(double));
+    double *Y_dB = malloc(n * sizeof(double));
+    double max_db = -1e9;
+
+    for (int k = 0; k < n; k++) {
+        double real = 0.0, imag = 0.0;
+        for (int t = 0; t < n; t++) {
+            double angle = 2 * PI * k * t / n;
+            real += data[t] * cos(angle);
+            imag -= data[t] * sin(angle);
+        }
+        fft_mag[k] = sqrt(real * real + imag * imag);
+        Y_dB[k] = 20 * log10(fft_mag[k] + 1e-12);
+        if (Y_dB[k] > max_db) max_db = Y_dB[k];
+    }
+
+    double cutoff = 0.0;
+    for (int i = 0; i < n; i++) {
+        if (Y_dB[i] < max_db - 3.0) {
+            cutoff = (i * fs) / n;
+            break;
+        }
+    }
+
+    free(fft_mag); free(Y_dB);
+    printf("Cutoff Frequency = %.6f Hz\n", cutoff);
+    return cutoff / fs;
+}
+
+void save_coefficients(const char *filename, const double *coeffs, int N) {
+    FILE *fp = fopen(filename, "w");
+    if (!fp) {
+        perror("Coefficient file error");
+        exit(EXIT_FAILURE);
+    }
+    for (int i = 0; i < N; i++) {
+        fprintf(fp, "b[%2d] = %.10f\n", i, coeffs[i]);
+    }
+    fclose(fp);
+}
+
+double besseli0(double x) {
+    double result = 1.0, term = 1.0;
+    for (int k = 1; k < 25; k++) {
+        term *= (x / (2.0 * k)) * (x / (2.0 * k));
+        result += term;
+    }
+    return result;
+}
+
+void kaiser_window(double *coeffs, int order, double cutoff) {
+    double beta = 5.0;
+    double fc = cutoff;
+    double i0_beta = besseli0(beta);
+    for (int i = 0; i < order; i++) {
+        double n = i - (order - 1) / 2.0;
+        double sinc = (n == 0.0) ? 2.0 * fc : sin(2.0 * PI * fc * n) / (PI * n);
+        double ratio = n / ((order - 1) / 2.0);
+        double window = besseli0(beta * sqrt(1 - ratio * ratio)) / i0_beta;
+        coeffs[i] = sinc * window;
+    }
+}
+
+void frequency_sampling_builtin(double *coeffs, int order, double cutoff_freq) {
+    int N = order;
+    double fc_norm = cutoff_freq / (FS / 2);
+
+    double freq[3] = {0.0, fc_norm, 1.0};
+    double mag[3] = {1.0, 1.0, 0.0};
+
+    double H[N];
+    for (int k = 0; k < N; k++) {
+        double f = (double)k / (N - 1);
+        if (f <= freq[1]) {
+            H[k] = mag[0] + (mag[1] - mag[0]) * (f - freq[0]) / (freq[1] - freq[0]);
+        } else {
+            H[k] = mag[1] + (mag[2] - mag[1]) * (f - freq[1]) / (freq[2] - freq[1]);
+        }
+    }
+
+    for (int n = 0; n < N; n++) {
+        coeffs[n] = 0.0;
+        for (int k = 0; k < N; k++) {
+            coeffs[n] += H[k] * cos(2.0 * PI * k * (n - (order / 2.0)) / N);
+        }
+        coeffs[n] /= N;
+    }
+}
+
+void least_squares(double *coeffs, int order, double cutoff) {
+    int M = order;
+    for (int n = 0; n < M; n++) {
+        double m = n - (M - 1) / 2.0;
+        coeffs[n] = (m == 0.0) ? 2.0 * cutoff : sin(2.0 * PI * cutoff * m) / (PI * m);
+        coeffs[n] *= 0.54 - 0.46 * cos(2.0 * PI * n / (M - 1));
+    }
+}
+
+void remez_approx(double *coeffs, int order, double cutoff) {
+    int M = order;
+    for (int n = 0; n < M; n++) {
+        double m = n - (M - 1) / 2.0;
+        coeffs[n] = (m == 0.0) ? 2.0 * cutoff : sin(2.0 * PI * cutoff * m) / (PI * m);
+        coeffs[n] *= 0.42 - 0.5 * cos(2.0 * PI * n / (M - 1)) + 0.08 * cos(4.0 * PI * n / (M - 1));
+    }
+}
+
+int main() {
+    printf("Reading ADC data and normalizing...\n");
+    read_and_process_adc("adc_10.txt");
+
+    printf("Estimating Cutoff Frequency via FFT...\n");
+    double cutoff = compute_cutoff_from_fft(weights, num_samples, FS);
+
+    printf("Applying Moving Average Filter (Order = %d)...\n", FIR_ORDER);
+    moving_average(FIR_ORDER, "mov_avg.txt");
+
+    printf("Generating FIR coefficients using all methods...\n");
+    double coeffs[FIR_ORDER];
+
+    kaiser_window(coeffs, FIR_ORDER, cutoff);
+    save_coefficients("kaiser_coeffs.txt", coeffs, FIR_ORDER);
+
+    frequency_sampling_builtin(coeffs, FIR_ORDER, cutoff * FS);
+    save_coefficients("freq_sam_coeffs.txt", coeffs, FIR_ORDER);
+
+    least_squares(coeffs, FIR_ORDER, cutoff);
+    save_coefficients("least_sq_coeffs.txt", coeffs, FIR_ORDER);
+
+    remez_approx(coeffs, FIR_ORDER, cutoff);
+    save_coefficients("parks_mc_coeffs.txt", coeffs, FIR_ORDER);
+
+    printf("All operations complete. Coefficients and results saved.\n");
+    return 0;
+}
