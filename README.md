@@ -171,8 +171,8 @@ Filtering is a fundamental tool in digital signal processing (DSP), used for noi
 
 ### ⚙️ C
 - Use a terminal
-gcc main.c -o filter -lm
-./filter
+-gcc main.c -o filter -lm
+-./filter
 
 
 ## 🪪 License
@@ -187,4 +187,4 @@ See the full license text in the `LICENSE` file.
 
 **Vijay M**  
 📧 vijaymuli6@gmail.com  
-🔗 GitHub: [@vijay-m](https://github.com/vijay-m)
+🔗 GitHub: 
