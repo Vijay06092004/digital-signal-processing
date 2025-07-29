@@ -1,4 +1,4 @@
-# 🧠 Advanced Signal Filtering Techniques
+# 🧠 Signal Filtering Techniques
 
 This repository demonstrates and compares multiple signal filtering techniques applied to time-series data (e.g., sensor data from ADCs). These filters include traditional FIR window-based filters, frequency-domain designs, and adaptive filters like Kalman and Wavelet filters.
 
