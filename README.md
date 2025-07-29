@@ -136,3 +136,41 @@ Filtering is a fundamental tool in digital signal processing (DSP), used for noi
 
 - **Type**: Recursive, optimal estimator
 - **Model**:
+
+
+- **Advantages**: Adaptive, optimal under Gaussian noise, real-time
+- **Disadvantages**: Requires accurate models and initial conditions
+
+---
+
+## 📊 Comparison Table
+
+| Method              | Type     | Real-Time | Adaptive | Ripple Control | Transition Sharpness | Notes                          |
+|---------------------|----------|-----------|----------|----------------|----------------------|-------------------------------|
+| Rectangular         | FIR      | ✔         | ✖        | ✖              | Poor                 | Basic, not ideal for precision |
+| Triangular          | FIR      | ✔         | ✖        | ✖              | Moderate             | Linear taper                  |
+| Hamming             | FIR      | ✔         | ✖        | Moderate       | Moderate             | Common in DSP                 |
+| Hanning             | FIR      | ✔         | ✖        | Moderate       | Moderate             | Smooth taper                  |
+| Blackman            | FIR      | ✔         | ✖        | High           | Low                  | High suppression               |
+| Kaiser              | FIR      | ✔         | ✖        | Adjustable     | Adjustable           | Flexible                      |
+| Frequency Sampling  | FIR      | ✖         | ✖        | Variable       | Variable             | Spectral domain design        |
+| Least Squares       | FIR      | ✖         | ✖        | Smooth         | Moderate             | Error minimized               |
+| Parks-McClellan     | FIR      | ✖         | ✖        | Optimal        | Sharp                | Best performance, equiripple  |
+| Wavelet             | Adaptive | ✔         | ✔        | Excellent      | Adaptive             | Great for non-stationary data |
+| Kalman              | Recursive| ✔         | ✔        | Optimal (w/ model) | Adaptive         | Model-based filtering         |
+
+---
+
+## 🚀 How to Use
+
+### 🧪 MATLAB
+- Open `main.m` or individual filter files.
+- Load your ADC data.
+- Run the script to apply all filters.
+- Plot bandwidth, FFT, and min/max values.
+
+### ⚙️ C
+- Use a terminal:
+```bash
+gcc main.c -o filter -lm
+./filter
