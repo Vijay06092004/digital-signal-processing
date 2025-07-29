@@ -170,8 +170,7 @@ Filtering is a fundamental tool in digital signal processing (DSP), used for noi
 - Plot bandwidth, FFT, and min/max values.
 
 ### ⚙️ C
-- Use a terminal:
-```bash
+- Use a terminal
 gcc main.c -o filter -lm
 ./filter
 
