@@ -174,3 +174,18 @@ Filtering is a fundamental tool in digital signal processing (DSP), used for noi
 ```bash
 gcc main.c -o filter -lm
 ./filter
+
+
+## 🪪 License
+
+This project is licensed under the [MIT License](LICENSE).  
+You are free to use, modify, and distribute this software with proper attribution.  
+See the full license text in the `LICENSE` file.
+
+---
+
+## 🙋 Author
+
+**Vijay M**  
+📧 vijaymuli6@gmail.com  
+🔗 GitHub: [@vijay-m](https://github.com/vijay-m)
