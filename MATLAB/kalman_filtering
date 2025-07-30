@@ -1,0 +1,100 @@
+clc; clear;
+
+% Constants
+ADC_MAX   = 2147483648.0;
+ZERO_CAL  = -0.0006981067708;
+SCALE_CAL = 0.00000452466566;
+fs = 100;
+dt = 1/fs;
+
+% Load and normalize
+a = load('adc_data65.txt');
+start_time = 58;
+end_time = 80;
+
+norm_data_in = a / ADC_MAX;
+weights = (norm_data_in - ZERO_CAL) / SCALE_CAL;
+n = length(weights);
+t = (0:n-1) / fs;
+
+% Initial Kalman settings
+x_est = weights(1);  % Start from first weight
+P = 1.0;
+Q = 1.0;             % Initial process noise
+R = 10.0;            % Initial measurement noise
+
+% Adaptive parameters
+window_size = 10;
+min_Q = 1e-3;
+max_Q = 1e3;
+min_R = 1e-1;
+max_R = 1e4;
+
+% Result storage
+x_estimates = zeros(n, 1);
+residuals = zeros(n, 1);
+
+for k = 1:n
+    % --- Predict ---
+    x_pred = x_est;
+    P_pred = P + Q;
+
+    % --- Update ---
+    y = weights(k) - x_pred;                % Residual
+    K = P_pred / (P_pred + R);              % Kalman gain
+    x_est = x_pred + K * y;                 % Update estimate
+    P = (1 - K) * P_pred;                   % Update error covariance
+    x_estimates(k) = x_est;
+    residuals(k) = y;
+
+    % --- Adaptive Q and R ---
+    if k > window_size
+        window = residuals(k-window_size+1:k);
+        R = var(window);
+        dx = diff(x_estimates(k-window_size+1:k));
+        Q = var(dx);
+    end
+
+    % Clamp Q and R
+    Q = min(max(Q, min_Q), max_Q);
+    R = min(max(R, min_R), max_R);
+end
+
+% Extract data between 31s and 45s
+
+
+% Convert time to indices
+start_idx = find(t >= start_time, 1, 'first');
+end_idx = find(t <= end_time, 1, 'last');
+
+% Get time and values in that range
+t_range = t(start_idx:end_idx);
+filtered_range = x_estimates(start_idx:end_idx);
+
+% Find min and max values and their indices
+[min_val, min_idx] = min(filtered_range);
+[max_val, max_idx] = max(filtered_range);
+
+% Corresponding times
+min_time = t_range(min_idx);
+max_time = t_range(max_idx);
+FilteredBW=max_val-min_val
+
+
+% Plot original and filtered signals for comparison
+figure;
+subplot(2, 1, 1);
+plot(t, weights);
+title('Original Signal(58Hz)');
+xlabel('Time (s)');
+ylabel('Amplitude');
+
+subplot(2, 1, 2);
+plot(t, x_estimates, 'b'); hold on;
+plot(min_time, min_val, 'ro', 'MarkerSize', 8, 'DisplayName', 'Min Point');
+plot(max_time, max_val, 'go', 'MarkerSize', 8, 'DisplayName', 'Max Point');
+legend show;
+title('Kalman Filtered Signal (Manual)');
+xlabel('Time (s)');
+ylabel('Amplitude');
+grid on;
