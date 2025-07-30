@@ -8,7 +8,7 @@ fs = 100;
 dt = 1/fs;
 
 % Load and normalize
-a = load('adc_data65.txt');
+a = load('input_file_name.txt');
 start_time = 58;
 end_time = 80;
 
