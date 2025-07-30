@@ -1,0 +1,103 @@
+clc; clear;
+
+% Parameters
+FS = 100; % Sampling frequency (Hz)
+FC = 5; % Cut-off frequency (Hz)
+ORDER = 9; % FIR order (number of taps)
+MA_WINDOW = 10; % Moving Average window size
+ADC_MAX   = 2147483648.0;
+ZERO_CAL  = -0.0006981067708;
+SCALE_CAL = 0.00000452466566;
+% Step 1: Load Data
+a = load('adc_51.txt');
+
+norm_data_in = a / ADC_MAX;
+weights = (norm_data_in - ZERO_CAL) / SCALE_CAL;
+num_samples = length(weights);
+time = (0:num_samples-1) / FS;
+f = (0:num_samples-1)*(FS/num_samples);
+
+Y = abs(fft(weights));
+Y_dB = 20*log10(Y);
+Y_dB_norm = Y_dB - max(Y_dB);  % Normalize to 0 dB max
+
+% Find cutoff frequency at -3 dB
+cutoffIdx = find(Y_dB_norm < -3, 1, 'first');
+cutoffFreq = f(cutoffIdx);
+disp("Cutoff is:");
+disp(cutoffFreq);
+
+% Find passband frequency (last point before signal starts dropping)
+passIdx = find(Y_dB_norm(1:cutoffIdx) > -0.5, 1, 'last');
+f_pass = f(passIdx);
+
+% Estimate stopband frequency using slope flattening
+slope = diff(Y_dB_norm);
+slope_thresh = 0.01;
+idx_range = cutoffIdx:length(slope);
+flat_idx = find(abs(slope(idx_range)) < slope_thresh, 1, 'first');
+
+if ~isempty(flat_idx)
+    stopIdx = cutoffIdx + flat_idx;
+else
+    stopIdx = N;
+end
+
+f_stop = f(stopIdx);
+
+
+% Normalize frequencies
+f_pass_n = f_pass / (FS/2);
+f_stop_n = f_stop / (FS/2);
+
+% Transition width and filter order
+trans_width = f_stop_n - f_pass_n;
+Order = ceil(3.3 / trans_width);  % Hamming window empirical formula
+disp("Order is:");
+disp(Order);
+
+disp("Stop Freq is:");
+disp(f_stop_n);
+
+
+
+% Step 2: Original Bandwidth
+orig_bw = max(weights) - min(weights);
+
+% Step 3: Moving Average Filter
+mov_avg_data = filter(ones(1, MA_WINDOW)/MA_WINDOW, 1, weights);
+
+% Step 4: FIR Filter Design (Rectangular window)
+fc_norm = f_stop_n  / (FS / 2); % Normalize cutoff frequency
+h = fir1(ORDER, fc_norm, rectwin(ORDER + 1)); % FIR with rectangular window
+
+% Step 5: Apply FIR Filter to Moving Avg Output
+fir_after_mov = filter(h, 1, mov_avg_data);
+
+% Step 6: Calculate Filtered Bandwidth (skip first 10 samples)
+filt_bw = max(fir_after_mov(11:end)) - min(fir_after_mov(11:end));
+
+% Step 7: Plotting
+figure;
+subplot(2,1,1);
+plot(time, weights, 'b');
+title('Original Signal');
+xlabel('Time (s)');
+ylabel('Amplitude');
+
+subplot(2,1,2);
+plot(time(19:end), fir_after_mov(19:end), 'r');
+title('Filtered Signal (MA + FIR)');
+xlabel('Time (s)');
+ylabel('Amplitude');
+
+% Step 8: Save Filtered Output
+out = [time(:), fir_after_mov(:)];
+writematrix(out, 'filtered_after_mov.txt');
+
+% Step 9: Bandwidth Report
+fprintf('\n===========================================\n');
+fprintf('Original Signal Bandwidth : %.6f\n', orig_bw);
+fprintf('Filtered Signal Bandwidth : %.6f\n', filt_bw);
+fprintf('Noise Reduction (%%) : %.2f%%\n', ((orig_bw - filt_bw) / orig_bw) * 100);
+fprintf('===========================================\n');
