@@ -1,0 +1,99 @@
+% ====== Constants ======
+ZERO_CAL = 0.01823035255075;
+SCALE_CAL = 0.00000451794631;
+ADC_MAX = 2^31;
+fs = 50;        
+N = length(adc_data);
+t = (0:N-1)/fs;
+f = (0:N-1)*(fs/N);
+
+% ====== Normalize ADC data and compute weights ======
+data_in = double(adc_data) / double(ADC_MAX);
+weights = (data_in - ZERO_CAL) / SCALE_CAL;
+
+% ====== FFT analysis ======
+Y = abs(fft(adc_data));
+Y_dB = 20*log10(Y);
+Y_dB_norm = Y_dB - max(Y_dB);
+
+% ====== Find cutoff frequency at -3 dB ======
+cutoffIdx = find(Y_dB_norm < -3, 1, 'first');
+cutoffFreq = f(cutoffIdx);
+
+% ====== Find passband frequency (last point before drop) ======
+passIdx = find(Y_dB_norm(1:cutoffIdx) > -0.5, 1, 'last');
+f_pass = f(passIdx);
+
+% ====== Estimate stopband frequency using slope flattening ======
+slope = diff(Y_dB_norm);
+slope_thresh = 0.01;
+idx_range = cutoffIdx:length(slope);
+flat_idx = find(abs(slope(idx_range)) < slope_thresh, 1, 'first');
+
+if ~isempty(flat_idx)
+    stopIdx = cutoffIdx + flat_idx;
+else
+    stopIdx = N;
+end
+
+f_stop = f(stopIdx);
+
+% ====== Normalize frequencies ======
+f_pass_n = f_pass / (fs/2);
+f_stop_n = f_stop / (fs/2);
+
+% ====== Fixed filter order ======
+Order = 10;
+
+fprintf('Cutoff Frequency = %.6f Hz\n', cutoffFreq);
+fprintf('Filter Order (Fixed) = %d\n', Order);
+
+% ====== Kaiser window and FIR coefficients (manual method like C code) ======
+beta = 5;
+fc = f_stop_n;
+n = 0:Order;
+alpha = Order / 2;
+i0_beta = besseli(beta);
+b_kaiser = zeros(1, Order + 1);
+
+for i = 0:(Order + 1)
+    n_shifted = n(i) - alpha;
+    % Compute sinc
+    if n_shifted == 0
+        sinc_val = 2 * fc;
+    else
+        sinc_val = sin(2 * pi * fc * n_shifted) / (pi * n_shifted);
+    end
+    % Kaiser window
+    ratio = n_shifted / alpha;
+    window_val = besseli(beta * sqrt(1 - ratio^2)) / i0_beta;
+    % Final coefficient
+    b_kaiser(i) = sinc_val * window_val;
+end
+
+disp('FIR Coefficients - Kaiser (beta = 8, formula method):');
+disp(b_kaiser);
+weights_out_kaiser = filter(b_kaiser, 1, weights);
+
+% Calculate bandwidths and plot results
+start_idx = Order + 1;
+t_out = (0:length(weights_out_kaiser)-1)/fs;
+[min_val, min_idx] = min(weights_out_kaiser(start_idx:end));
+[max_val, max_idx] = max(weights_out_kaiser(start_idx:end));
+min_time = t_out(min_idx);
+max_time = t_out(max_idx);
+Bandwidth = max_val - min_val;
+fprintf('Bandwidth (Kaiser): %.6f\n', Bandwidth);
+
+figure;
+subplot(2,1,1);
+plot(t, weights, 'b');
+title('Original Weights'); xlabel('Time'); ylabel('Weight');
+
+subplot(2,1,2);
+plot(t_out(start_idx:end), weights_out_kaiser(start_idx:end), 'g'); hold on;
+plot(min_time, min_val, 'ro');
+plot(max_time, max_val, 'mo');
+title(sprintf('Kaiser Filtered Output (Order %d)', Order));
+xlabel('Time'); ylabel('Weight');
+hold off;
