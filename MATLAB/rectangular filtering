@@ -1,5 +1,5 @@
-clc; clear;
-
+clc; clear all ;
+close all;
 % === Constants ===
 ADC_MAX   = 2147483648.0;
 ZERO_CAL  = -0.0006981067708;
