@@ -1,0 +1,76 @@
+clc; clear;
+
+% === Constants ===
+ADC_MAX   = 2147483648.0;
+ZERO_CAL  = -0.0006981067708;
+SCALE_CAL = 0.00000452466566;
+fs = 100;                          % Sampling frequency in Hz
+dt = 1/fs;
+
+% === Load and Normalize ADC Data ===
+adc_data = load('adc_data65.txt');  
+weights = (adc_data - ZERO_CAL) * SCALE_CAL;  % Normalize
+
+% === FFT for Cutoff Frequency Estimation ===
+N = length(weights);
+f = (0:N-1) * fs / N;
+W = abs(fft(weights));
+W_dB = 20*log10(W / max(W));
+
+cutoff_index = find(W_dB <= -3, 1);  
+fc = f(cutoff_index);               % -3 dB cutoff freq
+
+% === Transition Band Estimation ===
+dB_slope = diff(W_dB); 
+flat_idx = find(abs(dB_slope) < 0.01 & f(2:end) > fc, 1);
+fsb = f(flat_idx);                  % Stopband frequency
+transition_width = fsb - fc;
+
+% === FIR Filter Order Estimation ===
+N_order = ceil(3.3 / transition_width);
+if mod(N_order, 2) == 1
+    N_order = N_order + 1;         % Ensure even order for symmetry
+end
+
+% === Ideal Lowpass Filter Impulse Response ===
+wc = pi * fc / (fs/2);             % Normalized cutoff freq (0 to pi)
+n = 0:N_order;
+alpha = N_order / 2;
+hd = sin(wc*(n - alpha)) ./ (pi*(n - alpha));
+hd(alpha+1) = wc / pi;             % Fix NaN at center
+
+% === Rectangular Window ===
+w_rect = ones(1, N_order+1);       % Rectangular window
+
+% === Apply Window to Ideal Response ===
+h_rect = hd .* w_rect;
+
+% === Filter the Signal ===
+filtered_weights = filter(h_rect, 1, weights);
+
+% === Plot Results ===
+t = (0:N-1)*dt;
+
+figure;
+plot(t, weights, 'b--'); hold on;
+plot(t, filtered_weights, 'r', 'LineWidth', 1.2);
+[~, minIdx] = min(filtered_weights); [~, maxIdx] = max(filtered_weights);
+plot(t(minIdx), filtered_weights(minIdx), 'ko', 'MarkerFaceColor', 'g');
+plot(t(maxIdx), filtered_weights(maxIdx), 'ko', 'MarkerFaceColor', 'm');
+legend('Original', 'Filtered', 'Min', 'Max');
+xlabel('Time (s)'); ylabel('Weight');
+title('Rectangular Window Filter Output');
+grid on;
+
+% === Bandwidth Calculation ===
+bw_unfiltered = max(weights) - min(weights);
+bw_filtered   = max(filtered_weights(N_order+1:end)) - min(filtered_weights(N_order+1:end));
+fprintf('Cutoff Frequency (-3 dB): %.4f Hz\n', fc);
+fprintf('Filter Order: %d\n', N_order);
+fprintf('Bandwidth Before Filtering: %.4f\n', bw_unfiltered);
+fprintf('Bandwidth After Filtering:  %.4f\n', bw_filtered);
+
+% === Display Coefficients ===
+disp('Rectangular FIR Coefficients:');
+format long;
+disp(h_rect');
